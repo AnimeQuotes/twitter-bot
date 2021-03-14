@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 import traceback
 import uuid
 
@@ -29,10 +30,10 @@ class StreamListener(tweepy.StreamListener):
         logger.info("Connected.")
 
     def on_disconnect(self, notice):
-        logger.error("Disconnected.", notice)
+        logger.error("Disconnected. Notice: %s", notice)
 
     def on_warning(self, notice):
-        logger.warning("Received a warning message:", notice)
+        logger.warning("Received a warning message: %s", notice)
 
     def on_error(self, status_code):
         logger.error(f"Received an {status_code} HTTP error code from the Twitter API.")
@@ -44,6 +45,9 @@ class StreamListener(tweepy.StreamListener):
             traceback.print_exception(type(e), e, e.__traceback__)
 
     def _process_status(self, status):
+        logger.debug("Processing status %s from @%s", status.id_str, status.author.screen_name)
+        start = time.time()
+
         if hasattr(status, "extended_tweet"):
             mentions = status.extended_tweet["entities"]["user_mentions"]
             text = status.extended_tweet["full_text"]
@@ -79,12 +83,16 @@ class StreamListener(tweepy.StreamListener):
 
         upload = self.api.media_upload(path)
 
-        self.api.update_status(
+        sent_status = self.api.update_status(
             f"{character} ({anime}) #anime",
             auto_populate_reply_metadata=True,
             in_reply_to_status_id=status.id,
             media_ids=[upload.media_id]
         )
+        end = time.time()
+
+        logger.info("Processed status %s from @%s in %.2f seconds. Response status: %s",
+                    status.id_str, status.author.screen_name, start - end, sent_status.id_str)
 
         # delete the downloaded image
         os.remove(path)
