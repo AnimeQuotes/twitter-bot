@@ -64,7 +64,8 @@ class StreamListener(tweepy.StreamListener):
         with session.get(API_URL, params={"quote": text}, stream=True) as response:
             if response.status_code != 200:
                 data = response.json()
-                logger.error("Received unexpected response from the REST API:", data["description"])
+                logger.error("Received unexpected response from the REST API. "
+                             "Code: %s | Description: %s", response.status_code, data.get("description"))
                 return
 
             filename = uuid.uuid4().hex + ".png"
