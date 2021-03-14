@@ -79,7 +79,7 @@ class StreamListener(tweepy.StreamListener):
         upload = self.api.media_upload(path)
 
         self.api.update_status(
-            f"{character} ({anime})",
+            f"{character} ({anime}) #anime",
             auto_populate_reply_metadata=True,
             in_reply_to_status_id=status.id,
             media_ids=[upload.media_id]
