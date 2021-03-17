@@ -3,6 +3,7 @@ import os
 import time
 import traceback
 import uuid
+from typing import List
 
 import requests
 import tweepy
@@ -21,6 +22,7 @@ session.headers.update({
 })
 
 
+# noinspection PyMethodMayBeStatic
 class StreamListener(tweepy.StreamListener):
     def __init__(self, api: tweepy.API):
         self.api = api
@@ -44,32 +46,77 @@ class StreamListener(tweepy.StreamListener):
         except Exception as e:
             traceback.print_exception(type(e), e, e.__traceback__)
 
+    def _get_text(self, status, first_mention_indices=None) -> str:
+        if hasattr(status, "full_text"):
+            dtr = status.display_text_range
+            text = status.full_text[dtr[0]:dtr[1]]
+        elif hasattr(status, "extended_tweet"):
+            ext = status.extended_tweet
+            dtr = ext["display_text_range"]
+            text = ext["full_text"][dtr[0]:dtr[1]]
+        elif hasattr(status, "display_text_range"):
+            dtr = status.display_text_range
+            text = status.text[dtr[0]:dtr[1]]
+        elif first_mention_indices is not None:
+            text = status.text[:first_mention_indices[0]] \
+                   + status.text[first_mention_indices[1] + 1:]
+        else:
+            text = status.text
+
+        return text
+
+    def _get_mentions(self, status) -> List[dict]:
+        if hasattr(status, "extended_tweet"):
+            mentions = status.extended_tweet["entities"]["user_mentions"]
+        else:
+            mentions = status.entities["user_mentions"]
+
+        return mentions
+
     def _process_status(self, status):
+        if hasattr(status, "retweeted_status") or status.is_quote_status or status.author == self.me:
+            return
+
         logger.debug("Processing status %s from @%s", status.id_str, status.author.screen_name)
         start = time.time()
 
-        if hasattr(status, "extended_tweet"):
-            mentions = status.extended_tweet["entities"]["user_mentions"]
-            text = status.extended_tweet["full_text"]
-        else:
-            mentions = status.entities["user_mentions"]
-            text = status.text
-
-        # verify if the bot account was mentioned
+        mentions = self._get_mentions(status)
+        mention_count = 0
+        first_mention_indices = None
         for mention in mentions:
             if mention["id"] == self.me.id:
-                indices = mention["indices"]
-                text = text[:indices[0]] + text[indices[1] + 1:]
-                break
-        else:
+                mention_count += 1
+
+                if first_mention_indices is None:
+                    first_mention_indices = mention["indices"]
+
+        if mention_count == 0:
             return
+
+        text = None
+        if status.in_reply_to_status_id:
+            replied_status = self.api.get_status(status.in_reply_to_status_id, tweet_mode="extended")
+            if replied_status.author == self.me and mention_count == 1:
+                return
+
+            replied_mentions = self._get_mentions(replied_status)
+            replied_mention_count = sum(1 for mention in replied_mentions if mention["id"] == self.me.id)
+            if replied_mention_count > 0 and mention_count == 1:
+                return
+
+            raw_mentions_text = " ".join("@" + mention["screen_name"] for mention in mentions)
+            if status.text.lower() == raw_mentions_text.lower():
+                text = self._get_text(replied_status)
+
+        if text is None:
+            text = self._get_text(status, first_mention_indices)
 
         # download the image
         with session.get(API_URL, params={"quote": text}, stream=True) as response:
             if response.status_code != 200:
                 data = response.json()
-                logger.error("Received unexpected response from the REST API. "
-                             "Code: %s | Description: %s", response.status_code, data.get("description"))
+                logger.warning("Received unexpected response from the REST API. "
+                               "Code: %s | Description: %s", response.status_code, data.get("description"))
                 return
 
             filename = uuid.uuid4().hex + ".png"
@@ -91,8 +138,8 @@ class StreamListener(tweepy.StreamListener):
         )
         end = time.time()
 
-        logger.info("Processed status %s from @%s in %.2f seconds. Response status: %s",
-                    status.id_str, status.author.screen_name, start - end, sent_status.id_str)
+        logger.info("Processed status %s from @%s in %.2f seconds. Response status: %s.",
+                    status.id_str, status.author.screen_name, end - start, sent_status.id_str)
 
         # delete the downloaded image
         os.remove(path)
