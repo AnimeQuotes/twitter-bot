@@ -10,7 +10,7 @@ CONSUMER_SECRET = os.environ["CONSUMER_SECRET"]
 ACCESS_TOKEN_KEY = os.environ["ACCESS_TOKEN_KEY"]
 ACCESS_TOKEN_SECRET = os.environ["ACCESS_TOKEN_SECRET"]
 
-logging.basicConfig(level="INFO")
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
 auth.set_access_token(ACCESS_TOKEN_KEY, ACCESS_TOKEN_SECRET)
